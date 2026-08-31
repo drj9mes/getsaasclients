@@ -1,79 +1,75 @@
 name: Import GetSaaSClients source
 
-on:
-workflow_dispatch:
+on: workflow_dispatch
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-import:
-runs-on: ubuntu-24.04
+  import:
+    runs-on: ubuntu-24.04
 
+    steps:
+      - name: Checkout bootstrap repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-steps:
-  - name: Checkout bootstrap repository
-    uses: actions/checkout@v4
-    with:
-      fetch-depth: 0
+      - name: Verify source archive
+        run: |
+          set -euo pipefail
 
-  - name: Verify source archive
-    run: |
-      set -euo pipefail
+          test -f GetSaaSClients_source_current.zip
+          unzip -t GetSaaSClients_source_current.zip
 
-      test -f GetSaaSClients_source_current.zip
-      unzip -t GetSaaSClients_source_current.zip
+          if unzip -Z1 GetSaaSClients_source_current.zip | grep -Eq '(^|/)\.git(/|$)|(^|/)node_modules(/|$)|(^|/)\.env($|\.)'; then
+            echo "Archive contains forbidden paths."
+            exit 2
+          fi
 
-      if unzip -Z1 GetSaaSClients_source_current.zip | grep -Eq '(^|/)\.git(/|$)|(^|/)node_modules(/|$)|(^|/)\.env($|\.)'; then
-        echo "Archive contains forbidden paths."
-        exit 2
-      fi
+      - name: Extract complete project
+        run: |
+          set -euo pipefail
 
-  - name: Extract complete project
-    run: |
-      set -euo pipefail
+          unzip -oq GetSaaSClients_source_current.zip -d .
 
-      unzip -oq GetSaaSClients_source_current.zip -d .
+          rm -f GetSaaSClients_source_current.zip
+          rm -f .github/workflows/blank.yml
 
-      # Remove bootstrap artifacts after extraction.
-      rm -f GetSaaSClients_source_current.zip
-      rm -f .github/workflows/blank.yml
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+          run_install: false
 
-  - name: Setup pnpm
-    uses: pnpm/action-setup@v4
-    with:
-      version: 10.15.0
-      run_install: false
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
-  - name: Setup Node.js 24
-    uses: actions/setup-node@v4
-    with:
-      node-version: 24
+      - name: Generate production lockfile
+        run: |
+          set -euo pipefail
+          pnpm install --lockfile-only
 
-  - name: Generate production lockfile
-    run: |
-      set -euo pipefail
-      pnpm install --lockfile-only
+      - name: Run dependency-independent release checks
+        run: |
+          set -euo pipefail
+          pnpm test:offline
 
-  - name: Run dependency-independent release checks
-    run: |
-      set -euo pipefail
-      pnpm test:offline
+      - name: Commit complete application
+        run: |
+          set -euo pipefail
 
-  - name: Commit complete application
-    run: |
-      set -euo pipefail
+          git config user.name "getsaasclients-ci"
+          git config user.email "actions@users.noreply.github.com"
 
-      git config user.name "getsaasclients-ci"
-      git config user.email "actions@users.noreply.github.com"
+          git add -A
 
-      git add -A
+          if git diff --cached --quiet; then
+            echo "No project changes to commit."
+            exit 0
+          fi
 
-      if git diff --cached --quiet; then
-        echo "No project changes to commit."
-        exit 0
-      fi
-
-      git commit -m "build: import complete GetSaaSClients application"
-      git push
-
+          git commit -m "build: import complete GetSaaSClients application"
+          git push
