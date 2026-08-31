@@ -22,10 +22,19 @@ jobs:
           test -f GetSaaSClients_source_current.zip
           unzip -t GetSaaSClients_source_current.zip
 
-          if unzip -Z1 GetSaaSClients_source_current.zip | grep -Eq '(^|/)\.git(/|$)|(^|/)node_modules(/|$)|(^|/)\.env($|\.)'; then
-            echo "Archive contains forbidden paths."
+          ARCHIVE_LIST="$(unzip -Z1 GetSaaSClients_source_current.zip)"
+
+          if printf '%s\n' "$ARCHIVE_LIST" | grep -Eq '(^|/)\.git(/|$)|(^|/)node_modules(/|$)'; then
+            echo "Archive contains forbidden .git or node_modules paths."
             exit 2
           fi
+
+          if printf '%s\n' "$ARCHIVE_LIST" | grep -Eq '(^|/)\.env$|(^|/)\.env\.(local|production|development|test)$'; then
+            echo "Archive contains a real environment/secrets file."
+            exit 2
+          fi
+
+          echo "Archive verification passed."
 
       - name: Extract complete project
         run: |
