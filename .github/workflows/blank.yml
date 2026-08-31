@@ -10,7 +10,7 @@ jobs:
 import:
 runs-on: ubuntu-24.04
 
-```
+
 steps:
   - name: Checkout bootstrap repository
     uses: actions/checkout@v4
@@ -76,4 +76,4 @@ steps:
 
       git commit -m "build: import complete GetSaaSClients application"
       git push
-```
+
