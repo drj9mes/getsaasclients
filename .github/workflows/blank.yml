@@ -1,42 +1,62 @@
 name: Import GetSaaSClients source
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   import:
+    name: Import and validate GetSaaSClients
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout bootstrap repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Verify source archive
+      - name: Verify source archive exists
+        shell: bash
         run: |
           set -euo pipefail
 
-          test -f GetSaaSClients_source_current.zip
+          if [ ! -f "GetSaaSClients_source_current.zip" ]; then
+            echo "::error::GetSaaSClients_source_current.zip was not found in the repository root."
+            exit 1
+          fi
+
+          echo "Source archive found."
+
+      - name: Verify source archive integrity and security
+        shell: bash
+        run: |
+          set -euo pipefail
+
           unzip -t GetSaaSClients_source_current.zip
 
           ARCHIVE_LIST="$(unzip -Z1 GetSaaSClients_source_current.zip)"
 
-          if printf '%s\n' "$ARCHIVE_LIST" | grep -Eq '(^|/)\.git(/|$)|(^|/)node_modules(/|$)'; then
-            echo "Archive contains forbidden .git or node_modules paths."
+          if printf '%s\n' "$ARCHIVE_LIST" \
+            | grep -Eq '(^|/)\.git(/|$)|(^|/)node_modules(/|$)'; then
+            echo "::error::Archive contains forbidden .git or node_modules paths."
             exit 2
           fi
 
-          if printf '%s\n' "$ARCHIVE_LIST" | grep -Eq '(^|/)\.env$|(^|/)\.env\.(local|production|development|test)$'; then
-            echo "Archive contains a real environment/secrets file."
+          if printf '%s\n' "$ARCHIVE_LIST" \
+            | grep -Eq '(^|/)\.env$|(^|/)\.env\.(local|production|development|test)$'; then
+            echo "::error::Archive contains a real environment/secrets file."
             exit 2
           fi
 
           echo "Archive verification passed."
 
       - name: Extract complete project
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -44,6 +64,23 @@ jobs:
 
           rm -f GetSaaSClients_source_current.zip
           rm -f .github/workflows/blank.yml
+
+          echo "Project extracted."
+
+      - name: Verify project files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f package.json
+          test -f pnpm-workspace.yaml
+          test -f turbo.json
+          test -f docker-compose.yml
+          test -d apps
+          test -d packages
+          test -d tests
+
+          echo "Required GetSaaSClients project files are present."
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -55,18 +92,86 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
 
-      - name: Generate production lockfile
+      - name: Display runtime versions
+        shell: bash
         run: |
           set -euo pipefail
-          pnpm install --lockfile-only
+
+          node --version
+          npm --version
+          pnpm --version
+
+      - name: Install dependencies and generate production lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm install --no-frozen-lockfile
+
+          test -f pnpm-lock.yaml
+
+          echo "Dependencies installed and pnpm-lock.yaml generated."
 
       - name: Run dependency-independent release checks
+        shell: bash
         run: |
           set -euo pipefail
+
           pnpm test:offline
 
-      - name: Commit complete application
+      - name: Run package tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm test
+
+      - name: Run TypeScript checks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm typecheck
+
+      - name: Run lint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm lint
+
+      - name: Build production applications
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm build
+
+      - name: Validate Docker Compose configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker compose config --quiet
+
+      - name: Show imported project summary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "TypeScript/TSX files:"
+          find apps packages -type f \( -name '*.ts' -o -name '*.tsx' \) | wc -l
+
+          echo "SQL migrations:"
+          find packages/db/migrations -maxdepth 1 -type f -name '*.sql' | sort
+
+          echo "Docker services:"
+          docker compose config --services
+
+      - name: Commit complete validated application
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -80,5 +185,19 @@ jobs:
             exit 0
           fi
 
+          git status --short
+
           git commit -m "build: import complete GetSaaSClients application"
-          git push
+          git push origin HEAD:main
+
+      - name: Import completed
+        shell: bash
+        run: |
+          echo "GetSaaSClients source imported successfully."
+          echo "Lockfile generated."
+          echo "Offline checks passed."
+          echo "Tests passed."
+          echo "TypeScript passed."
+          echo "Lint passed."
+          echo "Production build passed."
+          echo "Docker Compose configuration passed."
